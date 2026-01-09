@@ -128,6 +128,24 @@
             -webkit-font-smoothing: antialiased;
         }
 
+        /* 动态背景动画，用于可选的背景模式 */
+        /* 采用多个径向渐变叠加并缓慢移动位置，营造出类似 html-music 项目中的流动背景效果 */
+        body.swirl-gradient {
+            background:
+                radial-gradient(circle at 10% 10%, #ff6ec4, transparent 60%),
+                radial-gradient(circle at 90% 90%, #7873f5, transparent 60%),
+                radial-gradient(circle at 50% 50%, #42e695, transparent 60%);
+            /* 放大背景尺寸以获得更柔和的过渡 */
+            background-size: 200% 200%;
+            animation: swirlBackground 25s linear infinite;
+        }
+
+        @keyframes swirlBackground {
+            0% { background-position: 0% 0%, 100% 100%, 50% 50%; }
+            50% { background-position: 50% 50%, 0% 0%, 100% 100%; }
+            100% { background-position: 100% 100%, 50% 50%, 0% 0%; }
+        }
+
         #gradientCanvas {
             position: fixed;
             top: 0;
@@ -1085,6 +1103,8 @@
     </style>
 </head>
 <body>
+    <!-- Canvas for Pixi.js dynamic background. It's hidden unless the dynamic background mode is active. -->
+    <canvas id="pixiBackgroundCanvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; pointer-events: none; display: none;"></canvas>
     <canvas id="gradientCanvas"></canvas>
 
     <div class="container">
@@ -1102,6 +1122,8 @@
                 <option value="tunehub">备用API (TuneHub)</option>
             </select>
                         <button class="algo-toggle-btn" id="algoToggleBtn" title="切换专辑封面颜色提取算法">算法：原(中位切分)</button>
+                        <!-- 新增：背景模式切换按钮，可在封面取色与动态动效之间切换 -->
+                        <button class="algo-toggle-btn" id="backgroundToggleBtn" title="切换播放器背景风格">背景：封面取色</button>
 <select class="source-select" id="sourceSelect">
                 <option value="kuwo" selected>酷我音乐</option>
                 <option value="joox">JOOX音乐</option>
@@ -2095,7 +2117,7 @@ function kMeansQuantize(pixels, k = 12, maxIter = 10) {
             resizeCanvas();
             initGradientPoints(); 
             animate(0);
-            if (debugConsole) debugConsole.log('渐变背景', '动态渐变背景系统已启动', 'success');
+            if (debugConsole) debugConsole.log('渐变背景', '动态动效背景系统已启动', 'success');
         }
 
         // ========== 音乐播放器逻辑 ==========
@@ -2268,6 +2290,58 @@ function kMeansQuantize(pixels, k = 12, maxIter = 10) {
 // ========== 颜色提取算法切换（原：中位切分 / 新：K-means） ==========
 let COLOR_EXTRACTION_ALGO = localStorage.getItem('colorExtractionAlgo') || 'medianCut'; // 'medianCut' | 'kmeans'
 
+// 背景模式：'extract' 使用专辑封面取色生成渐变；'gradient' 使用内置动态动效（涡旋）背景
+let currentBackgroundMode = localStorage.getItem('backgroundMode') || 'extract';
+
+const backgroundToggleBtn = document.getElementById('backgroundToggleBtn');
+
+// 更新背景切换按钮文本
+function updateBackgroundToggleLabel() {
+    if (!backgroundToggleBtn) return;
+    backgroundToggleBtn.textContent = currentBackgroundMode === 'extract' ? '背景：封面取色' : '背景：动态动效';
+}
+
+// 根据当前模式应用背景样式
+function applyBackgroundMode() {
+    const gradientCanvasEl = document.getElementById('gradientCanvas');
+    if (currentBackgroundMode === 'gradient') {
+        // 当选择动态动效模式时，隐藏颜色取色的渐变画布并启动 Pixi 背景
+        if (gradientCanvasEl) gradientCanvasEl.style.display = 'none';
+        // 展示 Pixi 背景画布
+        const pixiCanvas = document.getElementById('pixiBackgroundCanvas');
+        if (pixiCanvas) pixiCanvas.style.display = 'block';
+        // 使用当前专辑封面或默认图片启动动态动效背景
+        const bgUrl = (typeof currentAlbumUrl !== 'undefined' && currentAlbumUrl) ? currentAlbumUrl : albumArt.src || fullscreenAlbumArt.src || '';
+        if (typeof initPixiBackground !== 'undefined') {
+            initPixiBackground(bgUrl);
+        }
+    } else {
+        // 当选择封面取色模式时，停止 Pixi 背景并显示颜色取色的画布
+        const pixiCanvas = document.getElementById('pixiBackgroundCanvas');
+        if (pixiCanvas) pixiCanvas.style.display = 'none';
+        if (typeof destroyPixiBackground !== 'undefined') {
+            destroyPixiBackground();
+        }
+        if (gradientCanvasEl) gradientCanvasEl.style.display = 'block';
+    }
+    updateBackgroundToggleLabel();
+}
+
+if (backgroundToggleBtn) {
+    // 首次应用背景样式
+    applyBackgroundMode();
+    // 监听点击切换背景模式
+    backgroundToggleBtn.addEventListener('click', () => {
+        currentBackgroundMode = currentBackgroundMode === 'extract' ? 'gradient' : 'extract';
+        localStorage.setItem('backgroundMode', currentBackgroundMode);
+        applyBackgroundMode();
+        // 若切回封面取色模式，使用当前封面重新更新渐变颜色
+        if (currentBackgroundMode === 'extract' && typeof currentAlbumUrl !== 'undefined' && currentAlbumUrl) {
+            updateGradientFromAlbum(currentAlbumUrl);
+        }
+    });
+}
+
 function updateAlgoToggleButton() {
     if (!algoToggleBtn) return;
     algoToggleBtn.textContent = COLOR_EXTRACTION_ALGO === 'kmeans' ? '算法：K-means' : '算法：原(中位切分)';
@@ -2281,8 +2355,8 @@ if (algoToggleBtn) {
         updateAlgoToggleButton();
         if (debugConsole) debugConsole.info('颜色提取', `已切换颜色提取算法为: ${COLOR_EXTRACTION_ALGO === 'kmeans' ? 'K-means' : '原(中位切分)'}`);
 
-        // 如果当前已有专辑封面，立即按新算法刷新背景
-        if (currentAlbumUrl) {
+        // 如果当前已有专辑封面，并且背景模式为封面取色，立即按新算法刷新背景
+        if (currentAlbumUrl && currentBackgroundMode === 'extract') {
             updateGradientFromAlbum(currentAlbumUrl);
         }
     });
@@ -2701,8 +2775,14 @@ if (algoToggleBtn) {
                         albumArtPlaceholder.style.display = 'none';
                         fullscreenAlbumArt.src = track.pic_url;
                         
-                        // 使用颜色量化算法提取主要颜色并更新背景
-                        updateGradientFromAlbum(track.pic_url);
+                        // 根据背景模式更新背景：封面取色模式下更新渐变；动态动效模式下刷新 Pixi 背景
+                        if (currentBackgroundMode === 'extract') {
+                            updateGradientFromAlbum(track.pic_url);
+                        } else {
+                            if (typeof initPixiBackground !== 'undefined') {
+                                initPixiBackground(track.pic_url);
+                            }
+                        }
                     } else if (track.pic_id) {
                         if (debugConsole) debugConsole.info('专辑封面', `开始加载专辑封面，图片ID: ${track.pic_id}, API: ${apiToUse}`);
                         loadAlbumCover(track, apiToUse);
@@ -2814,8 +2894,14 @@ if (algoToggleBtn) {
                 albumArtPlaceholder.style.display = 'none';
                 fullscreenAlbumArt.src = picData.url;
                 
-                // 使用颜色量化算法提取主要颜色并更新背景
-                updateGradientFromAlbum(picData.url);
+                // 根据背景模式更新背景
+                if (currentBackgroundMode === 'extract') {
+                    updateGradientFromAlbum(picData.url);
+                } else {
+                    if (typeof initPixiBackground !== 'undefined') {
+                        initPixiBackground(picData.url);
+                    }
+                }
                 
                 // 更新mediaSession的artwork
                 if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
@@ -3310,6 +3396,13 @@ if (algoToggleBtn) {
         });
 
     </script>
+
+    <!-- Load Pixi.js library from CDN for dynamic background. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.0/pixi.min.js"></script>
+    <!-- Load Pixi filters (KawaseBlurFilter, TwistFilter, AdjustmentFilter) used for the swirling effect. -->
+    <script src="https://cdn.jsdelivr.net/npm/pixi-filters@3.2.0/dist/pixi-filters.js"></script>
+    <!-- Load our custom Pixi background script. Place this file in the same directory or adjust the path accordingly. -->
+    <script src="pixiBackground.js"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"5ccbff2f5b094d9889bac76ef086ce1a","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"version":"2024.11.0","token":"7939e04a4baf43c8b86a560f74aac60e","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
