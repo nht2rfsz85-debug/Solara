@@ -17,10 +17,42 @@
   let blurFilters = [];
   let currentTexture = null;
 
+  /**
+   * Load an image from a URL with CORS enabled and convert it to a PIXI texture.
+   * If loading fails, a white texture is returned instead. This helper avoids
+   * the black background issue when images are served from remote domains.
+   * @param {string} url The URL of the image to load.
+   * @returns {Promise<PIXI.Texture>} A promise that resolves to the loaded texture.
+   */
+  function loadTexture(url) {
+    return new Promise((resolve) => {
+      if (!url) {
+        resolve(PIXI.Texture.WHITE);
+        return;
+      }
+      const img = new Image();
+      // Enable CORS to allow loading images from different origins. The remote
+      // server must send appropriate CORS headers for this to succeed.
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const tex = PIXI.Texture.from(img);
+          resolve(tex);
+        } catch (e) {
+          resolve(PIXI.Texture.WHITE);
+        }
+      };
+      img.onerror = () => {
+        resolve(PIXI.Texture.WHITE);
+      };
+      img.src = url;
+    });
+  }
+
   // Create and initialize the Pixi background. If already running, it will
   // destroy the previous instance before creating a new one. The imageUrl
   // argument should be a valid URL or data URI of the album artwork.
-  function initPixiBackground(imageUrl) {
+  async function initPixiBackground(imageUrl) {
     const canvas = document.getElementById('pixiBackgroundCanvas');
     if (!canvas) {
       return;
@@ -47,9 +79,8 @@
     container = new PIXI.Container();
     pixiApp.stage.addChild(container);
 
-    // Load the texture from the provided image URL. If no URL is provided
-    // (e.g. before a song has been selected), create a blank white texture.
-    currentTexture = imageUrl ? PIXI.Texture.from(imageUrl) : PIXI.Texture.WHITE;
+    // Start with a white texture; we'll update it once the image loads.
+    currentTexture = PIXI.Texture.WHITE;
 
     // Create four sprites of the same artwork. Their sizes and positions
     // correspond to the TypeScript implementation from html‑music.
@@ -130,18 +161,28 @@
       r.x = screenW / 2 + (screenW / 2) * 0.1 + (screenW / 4) * Math.cos(r.rotation * 0.75);
       r.y = screenH / 2 + (screenW / 2) * 0.1 + (screenW / 4) * Math.sin(r.rotation * 0.75);
     });
+
+    // Once the application is set up, asynchronously load the provided image
+    // and update the sprites’ textures when it’s ready.
+    if (imageUrl) {
+      const tex = await loadTexture(imageUrl);
+      sprites.forEach(sprite => {
+        sprite.texture = tex;
+      });
+      currentTexture = tex;
+    }
   }
 
   // Update the artwork without resetting positions or rotations. This
   // function can be called whenever the album art changes.
-  function updatePixiArtwork(imageUrl) {
+  async function updatePixiArtwork(imageUrl) {
     if (!pixiApp || !container) return;
     if (!imageUrl) return;
-    const newTexture = PIXI.Texture.from(imageUrl);
+    const tex = await loadTexture(imageUrl);
     sprites.forEach(sprite => {
-      sprite.texture = newTexture;
+      sprite.texture = tex;
     });
-    currentTexture = newTexture;
+    currentTexture = tex;
   }
 
   // Clean up the Pixi application and release resources.
