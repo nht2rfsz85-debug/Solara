@@ -43,6 +43,10 @@
         }
       };
       img.onerror = () => {
+        // Log an error to the browser console so developers can diagnose why
+        // the dynamic background is showing a black screen. This may happen
+        // when the image server does not permit CORS or the URL is invalid.
+        console.error('[PixiBackground] 图片加载失败，无法作为背景纹理:', url);
         resolve(PIXI.Texture.WHITE);
       };
       img.src = url;

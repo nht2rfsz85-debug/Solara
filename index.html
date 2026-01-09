@@ -2403,11 +2403,86 @@ if (algoToggleBtn) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
-                // 音频URL请求返回文本
+                // 音频URL请求返回文本或JSON
                 if (params.type === 'url') {
-                    const audioUrl = await response.text();
-                    if (debugConsole) debugConsole.api('TuneHub API请求', `音频URL获取成功: ${audioUrl.substring(0, 100)}...`);
-                    return { url: audioUrl };
+                    // TuneHub 的 type=url 接口有两种返回格式：
+                    // 1. 直接返回真实音频地址的纯文本
+                    // 2. 返回 JSON，其中 data 或 data.url 为真实音频地址
+                    const rawText = await response.text();
+                    let audioUrl = rawText.trim();
+                    let parsed = null;
+                    try {
+                        parsed = JSON.parse(rawText);
+                    } catch (e) {
+                        // 非 JSON 格式，直接使用文本作为音频 URL
+                    }
+                    if (parsed && typeof parsed === 'object') {
+                        try {
+                            if (parsed.code === 200) {
+                                const d = parsed.data;
+                                if (typeof d === 'string' && d) {
+                                    audioUrl = d;
+                                } else if (d && typeof d === 'object' && d.url) {
+                                    audioUrl = d.url;
+                                }
+                            } else {
+                                // 返回错误码，保留原始文本作为错误信息
+                                audioUrl = '';
+                                const errMsg = `TuneHub 音频接口错误: ${parsed.message || parsed.code}`;
+                                if (debugConsole) debugConsole.error('TuneHub API请求', errMsg);
+                            }
+                        } catch (innerErr) {
+                            // 如果解析字段失败，则保持原文本
+                        }
+                    }
+                    if (audioUrl) {
+                        if (debugConsole) debugConsole.api('TuneHub API请求', `音频URL获取成功: ${audioUrl.substring(0, 100)}...`);
+                        return { url: audioUrl };
+                    } else {
+                        // 若未能获取有效音频地址，则返回 null
+                        return null;
+                    }
+                }
+
+                // 图片请求：TuneHub 对 type=pic 可能返回图片本身（通过重定向）或返回 JSON/文本
+                if (params.type === 'pic') {
+                    const contentType = response.headers.get('Content-Type') || '';
+                    // 如果直接返回图片，则使用重定向后的最终 URL 作为图片地址
+                    if (contentType.startsWith('image/')) {
+                        if (debugConsole) debugConsole.api('TuneHub API请求', `图片请求返回图片内容，使用最终URL: ${response.url}`);
+                        return { url: response.url };
+                    }
+                    // 否则尝试读取文本并解析
+                    const rawText = await response.text();
+                    let picUrl = rawText.trim();
+                    let parsed = null;
+                    try {
+                        parsed = JSON.parse(rawText);
+                    } catch (e) {
+                        // 非JSON格式
+                    }
+                    if (parsed && typeof parsed === 'object') {
+                        try {
+                            if (parsed.code === 200) {
+                                const d = parsed.data;
+                                if (typeof d === 'string' && d) {
+                                    picUrl = d;
+                                } else if (d && typeof d === 'object' && (d.url || d.pic)) {
+                                    picUrl = d.url || d.pic;
+                                }
+                            } else {
+                                const errMsg = `TuneHub 图片接口错误: ${parsed.message || parsed.code}`;
+                                if (debugConsole) debugConsole.error('TuneHub API请求', errMsg);
+                                picUrl = '';
+                            }
+                        } catch (innerErr) {
+                            // ignore
+                        }
+                    }
+                    if (picUrl) {
+                        return { url: picUrl };
+                    }
+                    return null;
                 }
                 
                 // 其他请求返回JSON
@@ -2858,17 +2933,42 @@ if (algoToggleBtn) {
             }
             
             if (debugConsole) debugConsole.info('专辑封面', `请求专辑封面，图片ID: ${track.pic_id}, API: ${api}`);
+
+// 如果是 TuneHub 并且搜索结果中已经携带了 pic_url，则直接使用该链接
+// 不再请求 API。这样可以避免 TuneHub 的 pic 接口返回格式不稳定导致出错。
+if (api === 'tunehub' && track.pic_url) {
+    currentAlbumUrl = track.pic_url;
+    if (debugConsole) debugConsole.info('专辑封面', `直接使用搜索结果中的 pic_url: ${track.pic_url}`);
+    albumArt.src = currentAlbumUrl;
+    albumArt.style.display = 'block';
+    albumArtPlaceholder.style.display = 'none';
+    fullscreenAlbumArt.src = currentAlbumUrl;
+    // 根据背景模式设置背景
+    if (currentBackgroundMode === 'extract') {
+        updateGradientFromAlbum(currentAlbumUrl);
+    } else {
+        if (typeof initPixiBackground !== 'undefined') {
+            initPixiBackground(currentAlbumUrl);
+        }
+    }
+    // 更新 mediaSession artwork
+    if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
+        navigator.mediaSession.metadata.artwork = [
+            { src: currentAlbumUrl, sizes: '3000x3000', type: 'image/jpeg' }
+        ];
+    }
+    return;
+}
+
             
             let picData;
             if (api === 'tunehub') {
-                // TuneHub API - 直接构建URL
-                const apiConfig = API_CONFIG.tunehub;
-                const url = new URL(apiConfig.baseUrl);
-                url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
-                url.searchParams.append('id', track.pic_id);
-                url.searchParams.append('type', 'pic');
-                
-                picData = { url: url.toString() };
+                // TuneHub API - 调用统一apiRequest获取图片URL，返回 { url: xxx }
+                picData = await apiRequest({
+                    types: 'pic',
+                    source: track.platform || track.source || sourceSelect.value,
+                    id: track.pic_id
+                }, 'tunehub');
             } else {
                 // 原API
                 let sizeParam = '3000';
@@ -2882,7 +2982,7 @@ if (algoToggleBtn) {
                     source: track.platform || track.source || sourceSelect.value,
                     id: track.pic_id,
                     size: sizeParam
-                });
+                }, 'gdstudio');
             }
             
             if (picData && picData.url) {
@@ -3369,6 +3469,31 @@ if (algoToggleBtn) {
         window.onload = () => {
             // 初始化调试控制台
             initDebugConsole();
+
+            // 将 console.error 输出同步到调试控制台
+            // 这样在动态背景加载图片失败时，PixiBackground.js 中调用 console.error
+            // 的信息也会显示在界面上的调试控制台，方便排查问题。
+            const originalConsoleError = console.error.bind(console);
+            console.error = function (...args) {
+                originalConsoleError(...args);
+                try {
+                    const msg = args.map(arg => {
+                        if (typeof arg === 'object') {
+                            try {
+                                return JSON.stringify(arg);
+                            } catch {
+                                return String(arg);
+                            }
+                        }
+                        return String(arg);
+                    }).join(' ');
+                    if (debugConsole) {
+                        debugConsole.error('控制台错误', msg);
+                    }
+                } catch (e) {
+                    // ignore errors during logging
+                }
+            };
             
             // 启动渐变动画
             startGradientAnimation();
