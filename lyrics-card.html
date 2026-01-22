@@ -5746,7 +5746,19 @@ let previewScale = 1;
                 // 允许 UI 先渲染遮罩/按钮反馈
                 await __yieldToUI();
 
-                // 保存当前缩放比例
+                // ——导出高画质（方案B）：导出期间临时解除移动端性能限制，导出后恢复——
+                const __perf = (window.__LYRICS_PERF = window.__LYRICS_PERF || {});
+                const __perfBackup = {
+                    isMobile: __perf.isMobile,
+                    maxPreviewDpr: __perf.maxPreviewDpr,
+                    maxCanvasPixelsExport: __perf.maxCanvasPixelsExport
+                };
+                // 导出期间：不要把 requiredScale 限死在 2.2（文件原本在手机会这么 cap）
+                __perf.isMobile = false;
+                // 提高导出上限（避免 resizeCanvas 因像素上限把 dpr 压下去导致“分辨率大但糊”）
+                __perf.maxPreviewDpr = 6;
+                __perf.maxCanvasPixelsExport = 30000000;
+// 保存当前缩放比例
                 const originalUserScale = userScale;
                 const originalScale = scale;
 
@@ -6012,7 +6024,14 @@ try {
                             tintEl.style.opacity = __tintPrev.op || '';
                         }
                     } catch (_) {}
-// 恢复背景导出缩放（预览用）
+// 恢复导出前的性能参数
+                    try {
+                        __perf.isMobile = __perfBackup.isMobile;
+                        __perf.maxPreviewDpr = __perfBackup.maxPreviewDpr;
+                        __perf.maxCanvasPixelsExport = __perfBackup.maxCanvasPixelsExport;
+                    } catch (_) {}
+
+                    // 恢复背景导出缩放（预览用）
                     window.__LYRICS_CARD_EXPORT_SCALE = 1;
 
                     // 导出后，强制背景恢复到预览分辨率

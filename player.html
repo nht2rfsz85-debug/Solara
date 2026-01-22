@@ -3036,10 +3036,10 @@ if (algoToggleBtn) {
                         // 直接使用搜索时得到的图片URL
                         if (debugConsole) debugConsole.info('专辑封面', `使用搜索结果中的专辑封面URL: ${track.pic_url}`);
                         currentAlbumUrl = track.pic_url;
-                        albumArt.src = track.pic_url;
+                        albumArt.src = toProxyIfNeeded(track.pic_url);
                         albumArt.style.display = 'block';
                         albumArtPlaceholder.style.display = 'none';
-                        fullscreenAlbumArt.src = track.pic_url;
+                        fullscreenAlbumArt.src = toProxyIfNeeded(track.pic_url);
                         
                         // 使用颜色量化算法提取主要颜色并更新背景
                         updateGradientFromAlbum(track.pic_url);
@@ -6598,6 +6598,22 @@ window.checkCompatibility = function() {
 
     return r;
 };
+
+// 将酷我资源（kuwo.cn）改走后端代理，避免 Referer/跨域/防盗链导致封面加载失败
+function toProxyIfNeeded(rawUrl) {
+  try {
+    if (!rawUrl) return rawUrl;
+    const u = new URL(rawUrl, location.origin);
+    if (/(^|\.)kuwo\.cn$/i.test(u.hostname)) {
+      return `/api.php?target=${encodeURIComponent(u.toString())}`;
+    }
+    return u.toString();
+  } catch (e) {
+    return rawUrl;
+  }
+}
+
+
 
 // =========================================================
 // 性能优化总结 (Performance Optimizations Summary)
