@@ -2,14 +2,15 @@ const DEFAULT_API_BASE_URL = "https://music-api.gdstudio.xyz/api.php";
 const KUWO_HOST_PATTERN = /(^|\.)kuwo\.cn$/i;
 const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
 
-// 支持用环境变量覆盖：API_BASE_URL / API_BASE_URL_2
-function getApiBase(api?: string): string {
-  const env: any = (globalThis as any);
-  const api1 = env.API_BASE_URL || DEFAULT_API_BASE_URL;
-  const api2 = env.API_BASE_URL_2 || "";
-  // 约定：api=tunehub 走 API_BASE_URL_2（如果你想反过来，改这里）
-  if (api && api.toLowerCase() === "tunehub" && api2) return api2;
-  return api1;
+function getEnv(name: string): string | undefined {
+  // Cloudflare Pages Functions provide env via globalThis? Not always; simplest: allow bundler replacement,
+  // but we keep DEFAULT as fallback.
+  const g: any = globalThis as any;
+  return g?.[name];
+}
+
+function getApiBaseUrl(): string {
+  return getEnv("API_BASE_URL") || DEFAULT_API_BASE_URL;
 }
 
 function createCorsHeaders(init?: Headers): Headers {
@@ -21,7 +22,9 @@ function createCorsHeaders(init?: Headers): Headers {
       }
     }
   }
-  if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
+  if (!headers.has("Cache-Control")) {
+    headers.set("Cache-Control", "no-store");
+  }
   headers.set("Access-Control-Allow-Origin", "*");
   return headers;
 }
@@ -77,33 +80,17 @@ async function proxyKuwoAudio(targetUrl: string, request: Request): Promise<Resp
   return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers });
 }
 
-function mapTypeToTypes(url: URL) {
-  // 兼容 TuneHub 风格：type=lrc/url/pic/search -> types=lyric/url/pic/search
-  const type = url.searchParams.get("type");
-  if (!url.searchParams.get("types") && type) {
-    const m = type.toLowerCase();
-    if (m === "lrc") url.searchParams.set("types", "lyric");
-    else url.searchParams.set("types", m);
-  }
-}
-
 async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
-  const apiSel = url.searchParams.get("api") || "";
-  const base = getApiBase(apiSel);
-  const apiUrl = new URL(base);
+  const apiUrl = new URL(getApiBaseUrl());
 
   url.searchParams.forEach((value, key) => {
-    // 这些参数不透传
     if (key === "target" || key === "callback") return;
-    // api 参数仅用于选择上游
-    if (key === "api") return;
     apiUrl.searchParams.set(key, value);
   });
 
-  // 兼容 type -> types
-  mapTypeToTypes(apiUrl);
-
-  if (!apiUrl.searchParams.has("types")) return new Response("Missing types", { status: 400 });
+  if (!apiUrl.searchParams.has("types")) {
+    return new Response("Missing types", { status: 400 });
+  }
 
   const upstream = await fetch(apiUrl.toString(), {
     headers: {
@@ -113,8 +100,7 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
   });
 
   const headers = createCorsHeaders(upstream.headers);
-  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json; charset=utf-8");
-
+  // 不要强行改 Content-Type：保持上游的（GDStudio 是 json，其他也可能不是）
   return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers });
 }
 
