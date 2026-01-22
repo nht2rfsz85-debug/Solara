@@ -1,7 +1,7 @@
 const DEFAULT_TUNEHUB_BASE_URL = "https://music-dl.sayqz.com/api/";
 
 interface Env {
-  API_BASE_URL_2?: string;
+  API_BASE_URL_2?: string; // 你的备用 API（TuneHub 风格：type=search/url/pic/lrc）
 }
 
 const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
@@ -10,9 +10,7 @@ function createCorsHeaders(init?: Headers): Headers {
   const headers = new Headers();
   if (init) {
     for (const [key, value] of init.entries()) {
-      if (SAFE_RESPONSE_HEADERS.includes(key.toLowerCase())) {
-        headers.set(key, value);
-      }
+      if (SAFE_RESPONSE_HEADERS.includes(key.toLowerCase())) headers.set(key, value);
     }
   }
   if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
@@ -41,7 +39,7 @@ export async function onRequest(context: { request: Request; env: Env }): Promis
   const inUrl = new URL(request.url);
   const upstreamUrl = new URL(env.API_BASE_URL_2 || DEFAULT_TUNEHUB_BASE_URL);
 
-  // 透传 query（TuneHub 用 type=search/url/pic/lrc 等；url 返回可能是 text/plain）
+  // 透传 query（严格兼容你前端 TuneHub 风格：type/source/keyword/limit/page/id/br...）
   inUrl.searchParams.forEach((v, k) => upstreamUrl.searchParams.set(k, v));
 
   const upstream = await fetch(upstreamUrl.toString(), {
