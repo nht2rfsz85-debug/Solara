@@ -25,7 +25,7 @@
     function render(){
       const hash = location.hash || '#player';
       const page = hash === '#card' ? 'lyrics-card.html' : 'player.html';
-      app.src = page; // ✅只用 .html，不用 /player 这种会触发重定向的路径
+      app.src = page;
       btnPlayer.classList.toggle('active', hash !== '#card');
       btnCard.classList.toggle('active', hash === '#card');
     }
