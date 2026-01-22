@@ -1443,13 +1443,14 @@ body { min-height: calc(var(--vh, 1vh) * 100); }
 
 
 <script>
-  // 只把“封面(pic) + 播放链接(url) + 歌词(lrc)”走后端，搜索(search)直连 TuneHub（不需要跨域）
+  // ✅TuneHub：search 直连；url/pic/lrc 走后端（解决 flac24bit / 防盗链 / 跨域）
   const __TUNEHUB_DIRECT = "https://music-dl.sayqz.com/api/";
-  const __TUNEHUB_PROXY  = "/api/";      // Cloudflare Pages Functions: functions/api/index.ts
+  const __TUNEHUB_PROXY  = "/api/"; // Functions: functions/api/index.ts
 
   function __tunehubBaseFor(params){
-    const t = (params?.types || params?.type || '').toLowerCase();
+    const t = String(params?.types || params?.type || '').toLowerCase();
     if (t === 'search') return __TUNEHUB_DIRECT;
+    // 播放链接/封面/歌词 都走后端
     if (t === 'url' || t === 'pic' || t === 'lrc' || t === 'lyric') return __TUNEHUB_PROXY;
     return __TUNEHUB_PROXY;
   }
@@ -2507,7 +2508,7 @@ function kMeansQuantize(pixels, k = 12, maxIter = 10) {
             },
             tunehub: {
                 name: '备用API (TuneHub)',
-                baseUrl: "https://music-dl.sayqz.com/api/",
+                baseUrl: \"https://music-dl.sayqz.com/api/\",
                 // TuneHub API音质选项 - 与音乐下载.html完全一致
                 qualities: [
                     { value: '128k', label: '标准品质 (128k)' },
@@ -2652,11 +2653,11 @@ if (algoToggleBtn) {
 
         // TuneHub API请求函数 - 完全按照音乐下载.html的方式
         async function tunehubRequest(params) {
-  const __base = __tunehubBaseFor(params);
+  const base = __tunehubBaseFor(params);
 
             try {
                 const apiConfig = API_CONFIG.tunehub;
-                const url = new URL(__base, location.origin);
+                const url = new URL(base, location.origin);
                 
                 // 直接使用参数，不进行映射
                 Object.keys(params).forEach(k => {
@@ -2913,7 +2914,7 @@ if (algoToggleBtn) {
                     if (track.pic_url) {
                         albumArtUrl = track.pic_url;
                     } else if (track.pic_id) {
-                        albumArtUrl = `https://music-dl.sayqz.comhttps://music-dl.sayqz.com/api/?type=pic&source=${track.source}&id=${track.pic_id}`;
+                        albumArtUrl = `https://music-dl.sayqz.com/api/?type=pic&source=${track.source}&id=${track.pic_id}`;
                     } else {
                         albumArtUrl = 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2250%22%20height%3D%2250%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23333%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2258%25%22%20font-size%3D%2228%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Arial%2C%20sans-serif%22%3E%E2%99%AA%3C%2Ftext%3E%3C%2Fsvg%3E';
                     }
@@ -3020,7 +3021,7 @@ if (algoToggleBtn) {
                     // TuneHub API - 使用音乐下载.html中的方式
                     const apiConfig = API_CONFIG.tunehub;
                     // 直接构建URL，与音乐下载.html相同
-                    const url = new URL(__base, location.origin);
+                    const url = new URL(apiConfig.baseUrl, location.origin);
                     url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
                     url.searchParams.append('id', track.id);
                     url.searchParams.append('type', 'url');
@@ -3159,7 +3160,7 @@ if (algoToggleBtn) {
             if (api === 'tunehub') {
                 // TuneHub API - 直接构建URL
                 const apiConfig = API_CONFIG.tunehub;
-                const url = new URL(__base, location.origin);
+                const url = new URL(apiConfig.baseUrl, location.origin);
                 url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
                 url.searchParams.append('id', track.pic_id);
                 url.searchParams.append('type', 'pic');
@@ -3281,7 +3282,7 @@ if (algoToggleBtn) {
                 if (api === 'tunehub') {
                     // TuneHub API - 直接构建URL
                     const apiConfig = API_CONFIG.tunehub;
-                    const url = new URL(__base, location.origin);
+                    const url = new URL(apiConfig.baseUrl, location.origin);
                     url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
                     url.searchParams.append('id', lyricId);
                     url.searchParams.append('type', 'lrc');
