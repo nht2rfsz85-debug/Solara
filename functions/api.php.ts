@@ -3,16 +3,14 @@ const KUWO_HOST_PATTERN = /(^|\.)kuwo\.cn$/i;
 const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
 
 interface Env {
-  API_BASE_URL?: string;
+  API_BASE_URL?: string; // 你的主 API（GDStudio 风格：types=search/url/pic/lyric）
 }
 
 function createCorsHeaders(init?: Headers): Headers {
   const headers = new Headers();
   if (init) {
     for (const [key, value] of init.entries()) {
-      if (SAFE_RESPONSE_HEADERS.includes(key.toLowerCase())) {
-        headers.set(key, value);
-      }
+      if (SAFE_RESPONSE_HEADERS.includes(key.toLowerCase())) headers.set(key, value);
     }
   }
   if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
@@ -49,7 +47,7 @@ function normalizeKuwoUrl(rawUrl: string): URL | null {
   }
 }
 
-async function proxyKuwoAudio(targetUrl: string, request: Request): Promise<Response> {
+async function proxyKuwo(targetUrl: string, request: Request): Promise<Response> {
   const normalized = normalizeKuwoUrl(targetUrl);
   if (!normalized) return new Response("Invalid target", { status: 400 });
 
@@ -68,24 +66,19 @@ async function proxyKuwoAudio(targetUrl: string, request: Request): Promise<Resp
   const headers = createCorsHeaders(upstream.headers);
   if (!headers.has("Cache-Control")) headers.set("Cache-Control", "public, max-age=3600");
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers,
-  });
+  return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers });
 }
 
-async function proxyApiRequest(url: URL, request: Request, env: Env): Promise<Response> {
+async function proxyApi(url: URL, request: Request, env: Env): Promise<Response> {
   const apiUrl = new URL(env.API_BASE_URL || DEFAULT_API_BASE_URL);
 
+  // 透传 query（严格兼容你前端的 GDStudio 风格：types/source/name/count/pages/id/br/size...）
   url.searchParams.forEach((value, key) => {
     if (key === "target" || key === "callback") return;
     apiUrl.searchParams.set(key, value);
   });
 
-  if (!apiUrl.searchParams.has("types")) {
-    return new Response("Missing types", { status: 400 });
-  }
+  if (!apiUrl.searchParams.has("types")) return new Response("Missing types", { status: 400 });
 
   const upstream = await fetch(apiUrl.toString(), {
     headers: {
@@ -95,11 +88,7 @@ async function proxyApiRequest(url: URL, request: Request, env: Env): Promise<Re
   });
 
   const headers = createCorsHeaders(upstream.headers);
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers,
-  });
+  return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers });
 }
 
 export async function onRequest(context: { request: Request; env: Env }): Promise<Response> {
@@ -110,7 +99,7 @@ export async function onRequest(context: { request: Request; env: Env }): Promis
 
   const url = new URL(request.url);
   const target = url.searchParams.get("target");
-  if (target) return proxyKuwoAudio(target, request);
+  if (target) return proxyKuwo(target, request);
 
-  return proxyApiRequest(url, request, env);
+  return proxyApi(url, request, env);
 }
