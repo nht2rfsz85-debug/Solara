@@ -1443,32 +1443,33 @@ body { min-height: calc(var(--vh, 1vh) * 100); }
 
 
 <script>
-  // ✅只代理会被 https 页面拦截的“http 酷我资源”(混合内容)；其余保持原样
-  function __isKuwoHost(host){ return /(^|\.)kuwo\.cn$/i.test(host || ''); }
+  // ✅TuneHub：search 直连；url/pic/lrc 走后端（解决 flac24bit / 防盗链 / 跨域）
+  const __TUNEHUB_DIRECT = "https://music-dl.sayqz.com/api/";
+  const __TUNEHUB_PROXY  = "/api/"; // Functions: functions/api/index.ts
 
-  function __proxyIfHttpKuwo(u){
-    try{
-      const url = new URL(u);
-      // 如果是 http 的酷我资源，在 https 页面会被拦截，必须走后端 target 代理
-      if (url.protocol === 'http:' && __isKuwoHost(url.hostname)) {
-        return '/api.php?target=' + encodeURIComponent(url.toString());
-      }
-      // 如果是 https 的 kuwo.cn 直链，也可以走代理以保证 Referer/Range 等
-      if (url.protocol === 'https:' && __isKuwoHost(url.hostname)) {
-        return '/api.php?target=' + encodeURIComponent(url.toString());
-      }
-      return u;
-    } catch(e){
-      return u;
-    }
+  function __tunehubBaseFor(params){
+    const t = String(params?.types || params?.type || '').toLowerCase();
+    if (t === 'search') return __TUNEHUB_DIRECT;
+    // 播放链接/封面/歌词 都走后端
+    if (t === 'url' || t === 'pic' || t === 'lrc' || t === 'lyric') return __TUNEHUB_PROXY;
+    return __TUNEHUB_PROXY;
   }
 
-  // TuneHub：search 直连；url/lrc 走后端 /api/（只负责拿到文本/歌词，不负责媒体直链）
-  const __TUNEHUB_DIRECT = "https://music-dl.sayqz.com/api/";
-  const __TUNEHUB_PROXY  = "/api/";
-  function __tunehubBase(params){
-    const t = String(params?.type || '').toLowerCase();
-    return (t === 'search') ? __TUNEHUB_DIRECT : __TUNEHUB_PROXY;
+  // 酷我直链图片（kuwo.cn）防盗链：走 /api.php?target=
+  function __wrapKuwoIfNeeded(u){
+    try{
+      const url = new URL(u, location.origin);
+      const host = url.hostname || '';
+      // ✅你报错的 img1.kwcdn.kuwo.cn 也包含在这里
+      if (/((\.|^)kuwo\.cn$|(\.|^)kwcdn\.kuwo\.cn$)/i.test(host)) {
+        // ✅强制 http：避免 Kuwo https 514；并且避免 https 页面直连被拦截，统一走后端
+        url.protocol = 'http:';
+        return '/api.php?target=' + encodeURIComponent(url.toString());
+      }
+      return u;
+    }catch(e){
+      return u;
+    }
   }
 </script>
 
@@ -2513,7 +2514,7 @@ function kMeansQuantize(pixels, k = 12, maxIter = 10) {
             },
             tunehub: {
                 name: '备用API (TuneHub)',
-                baseUrl: 'https://music-dl.sayqz.com/api/',
+                baseUrl: \"https://music-dl.sayqz.com/api/\",
                 // TuneHub API音质选项 - 与音乐下载.html完全一致
                 qualities: [
                     { value: '128k', label: '标准品质 (128k)' },
@@ -2658,9 +2659,11 @@ if (algoToggleBtn) {
 
         // TuneHub API请求函数 - 完全按照音乐下载.html的方式
         async function tunehubRequest(params) {
+  const base = __tunehubBaseFor(params);
+
             try {
                 const apiConfig = API_CONFIG.tunehub;
-                const url = new URL(__tunehubBase(params), location.origin);
+                const url = new URL(base, location.origin);
                 
                 // 直接使用参数，不进行映射
                 Object.keys(params).forEach(k => {
@@ -2682,8 +2685,7 @@ if (algoToggleBtn) {
                 
                 // 音频URL请求返回文本
                 if (params.type === 'url') {
-                    const audioUrlRaw = await response.text();
-                    const audioUrl = __proxyIfHttpKuwo(audioUrlRaw.trim());
+                    const audioUrl = await response.text();
                     if (debugConsole) debugConsole.api('TuneHub API请求', `音频URL获取成功: ${audioUrl.substring(0, 100)}...`);
                     return { url: audioUrl };
                 }
@@ -2911,7 +2913,7 @@ if (algoToggleBtn) {
                 let albumArtUrl;
                 if (api === 'gdstudio') {
                     albumArtUrl = track.pic_id ? 
-                        `https://music-api.gdstudio.xyz/api.php?types=pic&source=${track.source}&id=${track.pic_id}&size=150` : 
+                        `/api.php?types=pic&source=${track.source}&id=${track.pic_id}&size=150` : 
                         'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2250%22%20height%3D%2250%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23333%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2258%25%22%20font-size%3D%2228%22%20text-anchor%3D%22middle%22%20fill%3D%22%23fff%22%20font-family%3D%22Arial%2C%20sans-serif%22%3E%E2%99%AA%3C%2Ftext%3E%3C%2Fsvg%3E';
                 } else if (api === 'tunehub') {
                     // TuneHub: 优先使用pic_url，如果没有则用id构建
@@ -3025,7 +3027,7 @@ if (algoToggleBtn) {
                     // TuneHub API - 使用音乐下载.html中的方式
                     const apiConfig = API_CONFIG.tunehub;
                     // 直接构建URL，与音乐下载.html相同
-                    const url = new URL(__tunehubBase(params), location.origin);
+                    const url = new URL(apiConfig.baseUrl, location.origin);
                     url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
                     url.searchParams.append('id', track.id);
                     url.searchParams.append('type', 'url');
@@ -3068,10 +3070,10 @@ if (algoToggleBtn) {
                         // 直接使用搜索时得到的图片URL
                         if (debugConsole) debugConsole.info('专辑封面', `使用搜索结果中的专辑封面URL: ${track.pic_url}`);
                         currentAlbumUrl = track.pic_url;
-                        albumArt.src = __proxyIfHttpKuwo(track.pic_url);
+                        albumArt.src = __wrapKuwoIfNeeded(track.pic_url);
                         albumArt.style.display = 'block';
                         albumArtPlaceholder.style.display = 'none';
-                        fullscreenAlbumArt.src = __proxyIfHttpKuwo(track.pic_url);
+                        fullscreenAlbumArt.src = __wrapKuwoIfNeeded(track.pic_url);
                         
                         // 使用颜色量化算法提取主要颜色并更新背景
                         updateGradientFromAlbum(track.pic_url);
@@ -3164,7 +3166,7 @@ if (algoToggleBtn) {
             if (api === 'tunehub') {
                 // TuneHub API - 直接构建URL
                 const apiConfig = API_CONFIG.tunehub;
-                const url = new URL(__tunehubBase(params), location.origin);
+                const url = new URL(apiConfig.baseUrl, location.origin);
                 url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
                 url.searchParams.append('id', track.pic_id);
                 url.searchParams.append('type', 'pic');
@@ -3190,10 +3192,10 @@ if (algoToggleBtn) {
                 currentAlbumUrl = picData.url;
                 if (debugConsole) debugConsole.success('专辑封面', `成功加载专辑封面: ${picData.url}`);
                 
-                albumArt.src = picData.url;
+                albumArt.src = __wrapKuwoIfNeeded(picData.url);
                 albumArt.style.display = 'block';
                 albumArtPlaceholder.style.display = 'none';
-                fullscreenAlbumArt.src = picData.url;
+                fullscreenAlbumArt.src = __wrapKuwoIfNeeded(picData.url);
                 
                 // 使用颜色量化算法提取主要颜色并更新背景
                 updateGradientFromAlbum(picData.url);
@@ -3286,7 +3288,7 @@ if (algoToggleBtn) {
                 if (api === 'tunehub') {
                     // TuneHub API - 直接构建URL
                     const apiConfig = API_CONFIG.tunehub;
-                    const url = new URL(__tunehubBase(params), location.origin);
+                    const url = new URL(apiConfig.baseUrl, location.origin);
                     url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
                     url.searchParams.append('id', lyricId);
                     url.searchParams.append('type', 'lrc');
