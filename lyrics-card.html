@@ -1613,7 +1613,7 @@ const API_CONFIG = {
             },
             tunehub: {
                 name: '备用API (TuneHub)',
-                baseUrl: '/api.php',
+                baseUrl: '/api/',
                 // TuneHub API音质选项 - 与音乐下载.html完全一致
                 qualities: [
                     { value: '128k', label: '标准品质 (128k)' },
@@ -1688,7 +1688,6 @@ const API_CONFIG = {
         function updateQualityOptions() {
             const api = apiSelect.value;
             const apiConfig = API_CONFIG[api];
-    try { url.searchParams.set('api', api); } catch {}
             const qualitySelect = document.getElementById('qualitySelect');
             
             // 清空现有选项
@@ -2117,7 +2116,7 @@ function displaySearchResults(results, api) {
                     if (track.pic_url) {
                         albumArtUrl = track.pic_url;
                     } else if (track.pic_id) {
-                        albumArtUrl = `/api.php?type=pic&source=${track.source}&id=${track.pic_id}`;
+                        albumArtUrl = `/api/?type=pic&source=${track.source}&id=${track.pic_id}`;
                     } else {
                         albumArtUrl = 'https://placehold.co/50x50/333333/ffffff?text=♪';
                     }
@@ -5478,7 +5477,7 @@ let previewScale = 1;
                         if (track.pic_url) {
                             coverUrl = track.pic_url;
                         } else if (track.pic_id) {
-                            coverUrl = `/api.php?type=pic&source=${track.source}&id=${track.pic_id}`;
+                            coverUrl = `/api/?type=pic&source=${track.source}&id=${track.pic_id}`;
                         }
                     }
                 } catch (e) {}
@@ -5488,8 +5487,7 @@ let previewScale = 1;
                 try {
                     if (api === 'tunehub') {
                         const lyricId = track.lyric_id || track.id;
-                        const res = await apiRequest({ types: 'lyric', source: track.source || preferredSourceLocal, id: lyricId });
-      return res;
+                        const url = `${API_CONFIG.tunehub.baseUrl}?source=${track.source || preferredSourceLocal}&id=${lyricId}&type=lrc`;
                         const response = await fetch(url);
                         lyrics = await response.text();
                         lyrics = parseLrcToPlainText(lyrics);
