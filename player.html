@@ -1441,6 +1441,26 @@ body { min-height: calc(var(--vh, 1vh) * 100); }
 }
 </style>
 
+
+<script>
+  // 强制同域 API（防止残留导致直连第三方域名）
+  try {
+    if (window.API_CONFIG?.gdstudio) window.API_CONFIG.gdstudio.baseUrl = '/api.php';
+    if (window.API_CONFIG?.tunehub) window.API_CONFIG.tunehub.baseUrl = '/api/';
+  } catch (e) {}
+</script>
+
+<script>
+  function __wrapKuwoIfNeeded(u){
+    try{
+      const url = new URL(u, location.origin);
+      if (/(\.|^)kuwo\.cn$/i.test(url.hostname || '')) {
+        return '/api.php?target=' + encodeURIComponent(url.toString());
+      }
+      return u;
+    } catch(e) { return u; }
+  }
+</script>
 </head>
 <body>
     <canvas id="gradientCanvas"></canvas>
@@ -3036,10 +3056,10 @@ if (algoToggleBtn) {
                         // 直接使用搜索时得到的图片URL
                         if (debugConsole) debugConsole.info('专辑封面', `使用搜索结果中的专辑封面URL: ${track.pic_url}`);
                         currentAlbumUrl = track.pic_url;
-                        albumArt.src = toProxyIfNeeded(track.pic_url);
+                        albumArt.src = __wrapKuwoIfNeeded(track.pic_url);
                         albumArt.style.display = 'block';
                         albumArtPlaceholder.style.display = 'none';
-                        fullscreenAlbumArt.src = toProxyIfNeeded(track.pic_url);
+                        fullscreenAlbumArt.src = __wrapKuwoIfNeeded(track.pic_url);
                         
                         // 使用颜色量化算法提取主要颜色并更新背景
                         updateGradientFromAlbum(track.pic_url);
@@ -3158,10 +3178,10 @@ if (algoToggleBtn) {
                 currentAlbumUrl = picData.url;
                 if (debugConsole) debugConsole.success('专辑封面', `成功加载专辑封面: ${picData.url}`);
                 
-                albumArt.src = picData.url;
+                albumArt.src = __wrapKuwoIfNeeded(picData.url);
                 albumArt.style.display = 'block';
                 albumArtPlaceholder.style.display = 'none';
-                fullscreenAlbumArt.src = picData.url;
+                fullscreenAlbumArt.src = __wrapKuwoIfNeeded(picData.url);
                 
                 // 使用颜色量化算法提取主要颜色并更新背景
                 updateGradientFromAlbum(picData.url);
@@ -6598,22 +6618,6 @@ window.checkCompatibility = function() {
 
     return r;
 };
-
-// 将酷我资源（kuwo.cn）改走后端代理，避免 Referer/跨域/防盗链导致封面加载失败
-function toProxyIfNeeded(rawUrl) {
-  try {
-    if (!rawUrl) return rawUrl;
-    const u = new URL(rawUrl, location.origin);
-    if (/(^|\.)kuwo\.cn$/i.test(u.hostname)) {
-      return `/api.php?target=${encodeURIComponent(u.toString())}`;
-    }
-    return u.toString();
-  } catch (e) {
-    return rawUrl;
-  }
-}
-
-
 
 // =========================================================
 // 性能优化总结 (Performance Optimizations Summary)
