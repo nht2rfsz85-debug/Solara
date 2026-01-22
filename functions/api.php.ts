@@ -72,7 +72,6 @@ async function proxyKuwo(targetUrl: string, request: Request): Promise<Response>
 async function proxyApi(url: URL, request: Request, env: Env): Promise<Response> {
   const apiUrl = new URL(env.API_BASE_URL || DEFAULT_API_BASE_URL);
 
-  // 透传 query（严格兼容你前端的 GDStudio 风格：types/source/name/count/pages/id/br/size...）
   url.searchParams.forEach((value, key) => {
     if (key === "target" || key === "callback") return;
     apiUrl.searchParams.set(key, value);
