@@ -2,8 +2,3 @@
 /api    /api/          200
 /api/   /api/          200
 /api.php  /api.php     200
-
-/player  /player.html  200
-/player/ /player.html  200
-/card    /lyrics-card.html  200
-/card/   /lyrics-card.html  200
