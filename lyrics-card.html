@@ -1860,7 +1860,7 @@ if (algoToggleBtn) {
         async function tunehubRequest(params) {
             try {
                 const apiConfig = API_CONFIG.tunehub;
-                const url = new URL(apiConfig.baseUrl);
+                const url = new URL(apiConfig.baseUrl, location.origin);
                 
                 // 直接使用参数，不进行映射
                 Object.keys(params).forEach(k => {

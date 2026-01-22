@@ -2629,7 +2629,7 @@ if (algoToggleBtn) {
         async function tunehubRequest(params) {
             try {
                 const apiConfig = API_CONFIG.tunehub;
-                const url = new URL(apiConfig.baseUrl);
+                const url = new URL(apiConfig.baseUrl, location.origin);
                 
                 // 直接使用参数，不进行映射
                 Object.keys(params).forEach(k => {
@@ -2993,7 +2993,7 @@ if (algoToggleBtn) {
                     // TuneHub API - 使用音乐下载.html中的方式
                     const apiConfig = API_CONFIG.tunehub;
                     // 直接构建URL，与音乐下载.html相同
-                    const url = new URL(apiConfig.baseUrl);
+                    const url = new URL(apiConfig.baseUrl, location.origin);
                     url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
                     url.searchParams.append('id', track.id);
                     url.searchParams.append('type', 'url');
@@ -3132,7 +3132,7 @@ if (algoToggleBtn) {
             if (api === 'tunehub') {
                 // TuneHub API - 直接构建URL
                 const apiConfig = API_CONFIG.tunehub;
-                const url = new URL(apiConfig.baseUrl);
+                const url = new URL(apiConfig.baseUrl, location.origin);
                 url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
                 url.searchParams.append('id', track.pic_id);
                 url.searchParams.append('type', 'pic');
@@ -3254,7 +3254,7 @@ if (algoToggleBtn) {
                 if (api === 'tunehub') {
                     // TuneHub API - 直接构建URL
                     const apiConfig = API_CONFIG.tunehub;
-                    const url = new URL(apiConfig.baseUrl);
+                    const url = new URL(apiConfig.baseUrl, location.origin);
                     url.searchParams.append('source', track.platform || track.source || sourceSelect.value);
                     url.searchParams.append('id', lyricId);
                     url.searchParams.append('type', 'lrc');
