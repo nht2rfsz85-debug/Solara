@@ -3,34 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Solara 自定义</title>
-  <style>
-    html,body{height:100%;margin:0}
-    .bar{height:48px;display:flex;gap:8px;align-items:center;padding:0 10px;border-bottom:1px solid #e5e5e5}
-    .bar a{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border:1px solid #ddd;border-radius:10px;text-decoration:none;color:#111;font-family:system-ui}
-    .bar a.active{border-color:#111}
-    iframe{width:100%;height:calc(100vh - 49px);border:0}
-  </style>
+  <title>Solara API2 Only</title>
+  <style>html,body{height:100%;margin:0}iframe{width:100%;height:100vh;border:0}</style>
 </head>
 <body>
-  <div class="bar">
-    <a id="btnPlayer" href="#player">播放器</a>
-    <a id="btnCard" href="#card">歌词卡片</a>
-  </div>
-  <iframe id="app"></iframe>
-  <script>
-    const app = document.getElementById('app');
-    const btnPlayer = document.getElementById('btnPlayer');
-    const btnCard = document.getElementById('btnCard');
-    function render(){
-      const hash = location.hash || '#player';
-      const page = hash === '#card' ? 'lyrics-card.html' : 'player.html';
-      app.src = page;
-      btnPlayer.classList.toggle('active', hash !== '#card');
-      btnCard.classList.toggle('active', hash === '#card');
-    }
-    window.addEventListener('hashchange', render);
-    render();
-  </script>
+  <iframe src="player.html"></iframe>
 </body>
 </html>
