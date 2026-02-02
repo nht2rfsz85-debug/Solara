@@ -3510,6 +3510,12 @@ if (algoToggleBtn) {
             _cachedMiniLines = null;
             _cachedFullLines = null;
             _lastActiveIdx = -1;
+
+            // ✅关键：歌词刷新时，把旧的滚动定时器取消掉，避免回调访问已清空的缓存导致报错
+            if (_scrollThrottleTimer) {
+                clearTimeout(_scrollThrottleTimer);
+                _scrollThrottleTimer = null;
+            }
         }
         
         function highlightCurrentLyric(time) {
