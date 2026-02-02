@@ -1,3 +1,0 @@
-/api/*  /api/:splat  200
-/api    /api/          200
-/api/   /api/          200
