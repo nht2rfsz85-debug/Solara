@@ -756,107 +756,107 @@
   #bgToggleBtn{ width: 100%; }
 }
 </style><script>
-/**
- * ✅策略：先直连，不行再走代理（你要求的）
- * - GDStudio API：先请求 https://music-api.gdstudio.xyz/api.php ，失败/JSON解析失败 再请求同域 /api.php
- * - Kuwo 资源（封面/音频）：先直连；如果触发 error（比如 514），自动切换为 /api/?target=...
- *
- * 音质 br：完全透传（128/192/320/740/999），不做任何限制。
- */
 (function () {
-  const GD_DIRECT_BASE = "https://music-api.gdstudio.xyz/api.php";
-  const GD_PROXY_BASE  = "/api.php";
-
+  const GD_DIRECT = "https://music-api.gdstudio.xyz/api.php";
+  const GD_PROXY  = "/api.php";
   const KUWO_HOST_RE = /(^|\.)kuwo\.cn$|(^|\.)kwcdn\.kuwo\.cn$|(^|\.)sycdn\.kuwo\.cn$/i;
 
-  function abs(u){ try{ return new URL(u, location.href).toString(); }catch(e){ return String(u||""); } }
+  function abs(u){ try{return new URL(u, location.href).toString();}catch(e){return String(u||"");} }
   function isKuwo(u){
     try{
       const x=new URL(u);
       return (x.protocol==="http:"||x.protocol==="https:") && KUWO_HOST_RE.test(x.hostname||"");
     }catch(e){ return false; }
   }
-  function toProxyTarget(u){
-    const a = abs(u);
-    return "/api/?target=" + encodeURIComponent(a);
-  }
+  function toProxyTarget(u){ return "/api/?target=" + encodeURIComponent(abs(u)); }
 
-  // ---------------------------
-  // 1) GDStudio：先直连，不行再代理
-  // ---------------------------
-  function buildUrl(base, params){
-    const qs = new URLSearchParams(params).toString();
-    return base + "?" + qs;
-  }
+  // 1) fetch: GDStudio 失败自动回退代理
+  const _fetch = window.fetch.bind(window);
 
-  async function fetchJsonWithFallback(params){
-    const url1 = buildUrl(GD_DIRECT_BASE, params);
+  async function fetchWithGdFallback(input, init){
+    let urlStr = null;
     try{
-      if (window.debugConsole) window.debugConsole.api("原API请求(直连)", "发送请求: " + url1);
-      const r1 = await fetch(url1, { mode: "cors" });
-      if (!r1.ok) throw new Error("HTTP " + r1.status + ": " + r1.statusText);
-      const j1 = await r1.json(); // 这里会抛 JSON parse 错
-      return j1;
-    }catch(e1){
-      const url2 = buildUrl(GD_PROXY_BASE, params);
+      if (typeof input === "string") urlStr = input;
+      else if (input && typeof input.url === "string") urlStr = input.url;
+    }catch(e){}
+    if (!urlStr) return _fetch(input, init);
+
+    const absUrl = abs(urlStr);
+    if (!absUrl.startsWith(GD_DIRECT)) return _fetch(input, init);
+
+    const proxyUrl = GD_PROXY + absUrl.slice(GD_DIRECT.length); // keep ?query
+
+    try{
+      const r1 = await _fetch(absUrl, init);
+      if (!r1.ok) throw new Error("HTTP " + r1.status);
+
+      const ct = (r1.headers.get("content-type") || "").toLowerCase();
+      if (ct.includes("text/html")) throw new Error("HTML response");
+
       try{
-        if (window.debugConsole) window.debugConsole.api("原API请求(代理回退)", "发送请求: " + url2);
-        const r2 = await fetch(url2);
-        if (!r2.ok) throw new Error("HTTP " + r2.status + ": " + r2.statusText);
-        const j2 = await r2.json();
-        return j2;
-      }catch(e2){
-        // 维持你原来的错误风格：返回 null
-        if (window.debugConsole) window.debugConsole.error("原API请求", "直连失败后代理仍失败: " + (e2 && e2.message ? e2.message : e2));
-        return null;
+        await r1.clone().json();
+        return r1;
+      }catch(eJson){
+        throw new Error("JSON parse failed");
       }
+    }catch(e1){
+      return _fetch(proxyUrl, init);
     }
   }
 
-  // 覆盖原来的 gdstudioRequest（如果存在）
+  window.fetch = function(input, init){
+    return fetchWithGdFallback(input, init);
+  };
+
+  // 保持直连优先（你要的）
   try{
-    if (typeof window.gdstudioRequest === "function") {
-      window.gdstudioRequest = fetchJsonWithFallback;
-    }
+    if (window.API_CONFIG && window.API_CONFIG.gdstudio) window.API_CONFIG.gdstudio.baseUrl = GD_DIRECT;
   }catch(e){}
 
-  // 如果你的页面用 API_CONFIG.gdstudio.baseUrl，这里确保是直连 base
-  try{
-    if (window.API_CONFIG && window.API_CONFIG.gdstudio) {
-      window.API_CONFIG.gdstudio.baseUrl = GD_DIRECT_BASE;
-    }
-  }catch(e){}
+  // 2) Kuwo 资源加载失败自动切代理
+  function swapToProxy(el){
+    if (!el || !el.getAttribute) return false;
+    if (el.getAttribute("data-kuwo-proxied") === "1") return false;
 
-  // ---------------------------
-  // 2) Kuwo 资源：先直连，不行再代理（error 触发）
-  // ---------------------------
-  function trySwapToProxy(el){
-    const src = el && el.getAttribute ? el.getAttribute("src") : "";
-    if (!src) return;
+    const src = el.getAttribute("src") || "";
+    if (!src) return false;
 
     const a = abs(src);
+    if (a.includes("/api/?target=") || a.includes("/api.php?target=")) return false;
+    if (!isKuwo(a)) return false;
 
-    // 已经是代理就不管
-    if (a.includes("/api/?target=") || a.includes("/api.php?target=")) return;
-
-    if (isKuwo(a)) {
-      const p = toProxyTarget(a);
-      // 避免死循环：给个标记
-      el.setAttribute("data-kuwo-proxied", "1");
-      el.setAttribute("src", p);
-    }
+    el.setAttribute("data-kuwo-proxied", "1");
+    el.setAttribute("src", toProxyTarget(a));
+    return true;
   }
 
-  // 捕获 IMG / AUDIO / VIDEO error
   window.addEventListener("error", function(ev){
     const t = ev && ev.target;
     if (!t) return;
 
-    // 只处理资源元素
-    if (t instanceof HTMLImageElement || t instanceof HTMLAudioElement || t instanceof HTMLVideoElement) {
-      // 已经代理过就别循环
-      if (t.getAttribute("data-kuwo-proxied") === "1") return;
-      trySwapToProxy(t);
+    if (t.tagName === "SOURCE") {
+      const parent = t.parentElement;
+      if (parent && (parent.tagName === "AUDIO" || parent.tagName === "VIDEO")) {
+        swapToProxy(t);
+      }
+      return;
+    }
+
+    if (t instanceof HTMLImageElement) {
+      swapToProxy(t);
+      return;
+    }
+
+    if (t instanceof HTMLAudioElement || t instanceof HTMLVideoElement) {
+      const wasPlaying = !t.paused && !t.ended;
+      const changed = swapToProxy(t);
+      if (changed) {
+        try{ t.load(); }catch(e){}
+        if (wasPlaying) {
+          try{ t.play(); }catch(e){}
+        }
+      }
+      return;
     }
   }, true);
 })();
