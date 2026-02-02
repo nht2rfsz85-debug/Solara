@@ -757,87 +757,59 @@
 }
 </style><script>
 /**
- * ✅前端适配 Solara 代理（不改你原逻辑，靠注入兜底）
- * 1) GDStudio API：把 https://music-api.gdstudio.xyz/api.php?... 改成同域 /api.php?...
- * 2) Kuwo 资源（封面/音频）：把 kuwo/kwcdn/sycdn 直链改成 /api/?target=encodeURIComponent(url)
- *
- * 前提：你的仓库已有代理路由生效（原仓库那套：/api.php 和 /api/ 会被重写到 functions/proxy.ts）
+ * Kuwo 资源（封面/音频）强制走同域代理：
+ *   /api/?target=encodeURIComponent(原始URL)
+ * 适配域名：
+ *   *.kuwo.cn / *.kwcdn.kuwo.cn / *.sycdn.kuwo.cn
  */
 (function () {
-  const GD_API = "https://music-api.gdstudio.xyz/api.php";
-  const KUWO_HOST_RE = /(^|\.)kuwo\.cn$|(^|\.)kwcdn\.kuwo\.cn$|(^|\.)sycdn\.kuwo\.cn$/i;
+  const HOST_RE = /(^|\.)kuwo\.cn$|(^|\.)kwcdn\.kuwo\.cn$|(^|\.)sycdn\.kuwo\.cn$/i;
 
-  function toAbs(u){
-    try { return new URL(u, location.href).toString(); } catch(e){ return String(u||""); }
-  }
-  function isKuwo(u){
+  function abs(url){ try{return new URL(url, location.href).toString();}catch(e){return String(url||"");} }
+  function shouldProxy(u){
     try{
-      const x = new URL(u);
-      return (x.protocol==="http:" || x.protocol==="https:") && KUWO_HOST_RE.test(x.hostname||"");
+      const x=new URL(u);
+      return (x.protocol==="http:"||x.protocol==="https:") && HOST_RE.test(x.hostname||"");
     }catch(e){ return false; }
   }
-  function rewriteUrl(u){
-    const abs = toAbs(u);
-    if (!abs) return u;
-
-    // GDStudio api.php -> /api.php
-    if (abs.startsWith(GD_API)) {
-      const q = abs.slice(GD_API.length); // includes ?...
-      return "/api.php" + q;
-    }
-
-    // Kuwo resources -> /api/?target=
-    if (isKuwo(abs)) {
-      return "/api/?target=" + encodeURIComponent(abs);
-    }
-
-    return u;
+  function proxify(url){
+    const u=abs(url);
+    if(!shouldProxy(u)) return url;
+    return "/api/?target=" + encodeURIComponent(u);
   }
 
-  // fetch 拦截
-  const _fetch = window.fetch;
-  window.fetch = function(input, init){
-    try{
-      if (typeof input === "string") return _fetch.call(this, rewriteUrl(input), init);
-      if (input && typeof input.url === "string") {
-        const nu = rewriteUrl(input.url);
-        if (nu !== input.url) return _fetch.call(this, new Request(nu, input), init);
-      }
-    }catch(e){}
-    return _fetch.call(this, input, init);
-  };
-
-  // img.src 拦截（封面）
-  const imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
-  if (imgDesc && imgDesc.set && imgDesc.get) {
-    Object.defineProperty(HTMLImageElement.prototype, "src", {
-      get: imgDesc.get,
-      set: function(v){ return imgDesc.set.call(this, rewriteUrl(v)); }
-    });
+  // img src
+  const imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,"src");
+  if(imgDesc && imgDesc.set && imgDesc.get){
+    Object.defineProperty(HTMLImageElement.prototype,"src",{get:imgDesc.get,set:function(v){return imgDesc.set.call(this, proxify(v));}});
   }
-
-  // audio/video src 拦截（播放）
-  const mediaDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src");
-  if (mediaDesc && mediaDesc.set && mediaDesc.get) {
-    Object.defineProperty(HTMLMediaElement.prototype, "src", {
-      get: mediaDesc.get,
-      set: function(v){ return mediaDesc.set.call(this, rewriteUrl(v)); }
-    });
+  // media src
+  const mediaDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,"src");
+  if(mediaDesc && mediaDesc.set && mediaDesc.get){
+    Object.defineProperty(HTMLMediaElement.prototype,"src",{get:mediaDesc.get,set:function(v){return mediaDesc.set.call(this, proxify(v));}});
   }
-
-  // setAttribute('src', ...) 拦截
+  // setAttribute src
   const _setAttr = Element.prototype.setAttribute;
   Element.prototype.setAttribute = function(name, value){
-    if (String(name).toLowerCase() === "src") {
-      if (this instanceof HTMLImageElement || this instanceof HTMLMediaElement) {
-        return _setAttr.call(this, name, rewriteUrl(value));
+    if(String(name).toLowerCase()==="src"){
+      if(this instanceof HTMLImageElement || this instanceof HTMLMediaElement){
+        return _setAttr.call(this, name, proxify(value));
       }
     }
     return _setAttr.call(this, name, value);
   };
-
-  // 给你留个手动调用口
-  window.__SOLARA_PROXY_REWRITE__ = rewriteUrl;
+  // fetch
+  const _fetch = window.fetch;
+  window.fetch = function(input, init){
+    try{
+      if(typeof input==="string") return _fetch.call(this, proxify(input), init);
+      if(input && typeof input.url==="string"){
+        const nu = proxify(input.url);
+        if(nu!==input.url) return _fetch.call(this, new Request(nu, input), init);
+      }
+    }catch(e){}
+    return _fetch.call(this, input, init);
+  };
 })();
 </script>
 </head>
@@ -1686,7 +1658,7 @@ let currentAlbumUrl = null;
 const API_CONFIG = {
             gdstudio: {
                 name: '原API (GDStudio)',
-                baseUrl: 'https://music-api.gdstudio.xyz/api.php',
+                baseUrl: '/api.php',
                 // 原API音质选项
                 qualities: [
                     { value: '128', label: '标准品质 (128k)' },
@@ -1698,7 +1670,7 @@ const API_CONFIG = {
             },
             tunehub: {
                 name: '备用API (TuneHub)',
-                baseUrl: 'https://music-dl.sayqz.com/api/',
+                baseUrl: '/api/',
                 // TuneHub API音质选项 - 与音乐下载.html完全一致
                 qualities: [
                     { value: '128k', label: '标准品质 (128k)' },
