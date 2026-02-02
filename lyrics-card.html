@@ -755,7 +755,92 @@
 @media (max-width: 1100px){
   #bgToggleBtn{ width: 100%; }
 }
-</style></head>
+</style><script>
+/**
+ * ✅前端适配 Solara 代理（不改你原逻辑，靠注入兜底）
+ * 1) GDStudio API：把 https://music-api.gdstudio.xyz/api.php?... 改成同域 /api.php?...
+ * 2) Kuwo 资源（封面/音频）：把 kuwo/kwcdn/sycdn 直链改成 /api/?target=encodeURIComponent(url)
+ *
+ * 前提：你的仓库已有代理路由生效（原仓库那套：/api.php 和 /api/ 会被重写到 functions/proxy.ts）
+ */
+(function () {
+  const GD_API = "https://music-api.gdstudio.xyz/api.php";
+  const KUWO_HOST_RE = /(^|\.)kuwo\.cn$|(^|\.)kwcdn\.kuwo\.cn$|(^|\.)sycdn\.kuwo\.cn$/i;
+
+  function toAbs(u){
+    try { return new URL(u, location.href).toString(); } catch(e){ return String(u||""); }
+  }
+  function isKuwo(u){
+    try{
+      const x = new URL(u);
+      return (x.protocol==="http:" || x.protocol==="https:") && KUWO_HOST_RE.test(x.hostname||"");
+    }catch(e){ return false; }
+  }
+  function rewriteUrl(u){
+    const abs = toAbs(u);
+    if (!abs) return u;
+
+    // GDStudio api.php -> /api.php
+    if (abs.startsWith(GD_API)) {
+      const q = abs.slice(GD_API.length); // includes ?...
+      return "/api.php" + q;
+    }
+
+    // Kuwo resources -> /api/?target=
+    if (isKuwo(abs)) {
+      return "/api/?target=" + encodeURIComponent(abs);
+    }
+
+    return u;
+  }
+
+  // fetch 拦截
+  const _fetch = window.fetch;
+  window.fetch = function(input, init){
+    try{
+      if (typeof input === "string") return _fetch.call(this, rewriteUrl(input), init);
+      if (input && typeof input.url === "string") {
+        const nu = rewriteUrl(input.url);
+        if (nu !== input.url) return _fetch.call(this, new Request(nu, input), init);
+      }
+    }catch(e){}
+    return _fetch.call(this, input, init);
+  };
+
+  // img.src 拦截（封面）
+  const imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
+  if (imgDesc && imgDesc.set && imgDesc.get) {
+    Object.defineProperty(HTMLImageElement.prototype, "src", {
+      get: imgDesc.get,
+      set: function(v){ return imgDesc.set.call(this, rewriteUrl(v)); }
+    });
+  }
+
+  // audio/video src 拦截（播放）
+  const mediaDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src");
+  if (mediaDesc && mediaDesc.set && mediaDesc.get) {
+    Object.defineProperty(HTMLMediaElement.prototype, "src", {
+      get: mediaDesc.get,
+      set: function(v){ return mediaDesc.set.call(this, rewriteUrl(v)); }
+    });
+  }
+
+  // setAttribute('src', ...) 拦截
+  const _setAttr = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function(name, value){
+    if (String(name).toLowerCase() === "src") {
+      if (this instanceof HTMLImageElement || this instanceof HTMLMediaElement) {
+        return _setAttr.call(this, name, rewriteUrl(value));
+      }
+    }
+    return _setAttr.call(this, name, value);
+  };
+
+  // 给你留个手动调用口
+  window.__SOLARA_PROXY_REWRITE__ = rewriteUrl;
+})();
+</script>
+</head>
 <body>
 <!-- 控制面板 -->
 <div class="control-panel">
