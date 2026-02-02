@@ -757,59 +757,108 @@
 }
 </style><script>
 /**
- * Kuwo 资源（封面/音频）强制走同域代理：
- *   /api/?target=encodeURIComponent(原始URL)
- * 适配域名：
- *   *.kuwo.cn / *.kwcdn.kuwo.cn / *.sycdn.kuwo.cn
+ * ✅策略：先直连，不行再走代理（你要求的）
+ * - GDStudio API：先请求 https://music-api.gdstudio.xyz/api.php ，失败/JSON解析失败 再请求同域 /api.php
+ * - Kuwo 资源（封面/音频）：先直连；如果触发 error（比如 514），自动切换为 /api/?target=...
+ *
+ * 音质 br：完全透传（128/192/320/740/999），不做任何限制。
  */
 (function () {
-  const HOST_RE = /(^|\.)kuwo\.cn$|(^|\.)kwcdn\.kuwo\.cn$|(^|\.)sycdn\.kuwo\.cn$/i;
+  const GD_DIRECT_BASE = "https://music-api.gdstudio.xyz/api.php";
+  const GD_PROXY_BASE  = "/api.php";
 
-  function abs(url){ try{return new URL(url, location.href).toString();}catch(e){return String(url||"");} }
-  function shouldProxy(u){
+  const KUWO_HOST_RE = /(^|\.)kuwo\.cn$|(^|\.)kwcdn\.kuwo\.cn$|(^|\.)sycdn\.kuwo\.cn$/i;
+
+  function abs(u){ try{ return new URL(u, location.href).toString(); }catch(e){ return String(u||""); } }
+  function isKuwo(u){
     try{
       const x=new URL(u);
-      return (x.protocol==="http:"||x.protocol==="https:") && HOST_RE.test(x.hostname||"");
+      return (x.protocol==="http:"||x.protocol==="https:") && KUWO_HOST_RE.test(x.hostname||"");
     }catch(e){ return false; }
   }
-  function proxify(url){
-    const u=abs(url);
-    if(!shouldProxy(u)) return url;
-    return "/api/?target=" + encodeURIComponent(u);
+  function toProxyTarget(u){
+    const a = abs(u);
+    return "/api/?target=" + encodeURIComponent(a);
   }
 
-  // img src
-  const imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,"src");
-  if(imgDesc && imgDesc.set && imgDesc.get){
-    Object.defineProperty(HTMLImageElement.prototype,"src",{get:imgDesc.get,set:function(v){return imgDesc.set.call(this, proxify(v));}});
+  // ---------------------------
+  // 1) GDStudio：先直连，不行再代理
+  // ---------------------------
+  function buildUrl(base, params){
+    const qs = new URLSearchParams(params).toString();
+    return base + "?" + qs;
   }
-  // media src
-  const mediaDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,"src");
-  if(mediaDesc && mediaDesc.set && mediaDesc.get){
-    Object.defineProperty(HTMLMediaElement.prototype,"src",{get:mediaDesc.get,set:function(v){return mediaDesc.set.call(this, proxify(v));}});
-  }
-  // setAttribute src
-  const _setAttr = Element.prototype.setAttribute;
-  Element.prototype.setAttribute = function(name, value){
-    if(String(name).toLowerCase()==="src"){
-      if(this instanceof HTMLImageElement || this instanceof HTMLMediaElement){
-        return _setAttr.call(this, name, proxify(value));
+
+  async function fetchJsonWithFallback(params){
+    const url1 = buildUrl(GD_DIRECT_BASE, params);
+    try{
+      if (window.debugConsole) window.debugConsole.api("原API请求(直连)", "发送请求: " + url1);
+      const r1 = await fetch(url1, { mode: "cors" });
+      if (!r1.ok) throw new Error("HTTP " + r1.status + ": " + r1.statusText);
+      const j1 = await r1.json(); // 这里会抛 JSON parse 错
+      return j1;
+    }catch(e1){
+      const url2 = buildUrl(GD_PROXY_BASE, params);
+      try{
+        if (window.debugConsole) window.debugConsole.api("原API请求(代理回退)", "发送请求: " + url2);
+        const r2 = await fetch(url2);
+        if (!r2.ok) throw new Error("HTTP " + r2.status + ": " + r2.statusText);
+        const j2 = await r2.json();
+        return j2;
+      }catch(e2){
+        // 维持你原来的错误风格：返回 null
+        if (window.debugConsole) window.debugConsole.error("原API请求", "直连失败后代理仍失败: " + (e2 && e2.message ? e2.message : e2));
+        return null;
       }
     }
-    return _setAttr.call(this, name, value);
-  };
-  // fetch
-  const _fetch = window.fetch;
-  window.fetch = function(input, init){
-    try{
-      if(typeof input==="string") return _fetch.call(this, proxify(input), init);
-      if(input && typeof input.url==="string"){
-        const nu = proxify(input.url);
-        if(nu!==input.url) return _fetch.call(this, new Request(nu, input), init);
-      }
-    }catch(e){}
-    return _fetch.call(this, input, init);
-  };
+  }
+
+  // 覆盖原来的 gdstudioRequest（如果存在）
+  try{
+    if (typeof window.gdstudioRequest === "function") {
+      window.gdstudioRequest = fetchJsonWithFallback;
+    }
+  }catch(e){}
+
+  // 如果你的页面用 API_CONFIG.gdstudio.baseUrl，这里确保是直连 base
+  try{
+    if (window.API_CONFIG && window.API_CONFIG.gdstudio) {
+      window.API_CONFIG.gdstudio.baseUrl = GD_DIRECT_BASE;
+    }
+  }catch(e){}
+
+  // ---------------------------
+  // 2) Kuwo 资源：先直连，不行再代理（error 触发）
+  // ---------------------------
+  function trySwapToProxy(el){
+    const src = el && el.getAttribute ? el.getAttribute("src") : "";
+    if (!src) return;
+
+    const a = abs(src);
+
+    // 已经是代理就不管
+    if (a.includes("/api/?target=") || a.includes("/api.php?target=")) return;
+
+    if (isKuwo(a)) {
+      const p = toProxyTarget(a);
+      // 避免死循环：给个标记
+      el.setAttribute("data-kuwo-proxied", "1");
+      el.setAttribute("src", p);
+    }
+  }
+
+  // 捕获 IMG / AUDIO / VIDEO error
+  window.addEventListener("error", function(ev){
+    const t = ev && ev.target;
+    if (!t) return;
+
+    // 只处理资源元素
+    if (t instanceof HTMLImageElement || t instanceof HTMLAudioElement || t instanceof HTMLVideoElement) {
+      // 已经代理过就别循环
+      if (t.getAttribute("data-kuwo-proxied") === "1") return;
+      trySwapToProxy(t);
+    }
+  }, true);
 })();
 </script>
 </head>
@@ -1658,7 +1707,7 @@ let currentAlbumUrl = null;
 const API_CONFIG = {
             gdstudio: {
                 name: '原API (GDStudio)',
-                baseUrl: '/api.php',
+                baseUrl: 'https://music-api.gdstudio.xyz/api.php',
                 // 原API音质选项
                 qualities: [
                     { value: '128', label: '标准品质 (128k)' },
@@ -1670,7 +1719,7 @@ const API_CONFIG = {
             },
             tunehub: {
                 name: '备用API (TuneHub)',
-                baseUrl: '/api/',
+                baseUrl: 'https://music-dl.sayqz.com/api/',
                 // TuneHub API音质选项 - 与音乐下载.html完全一致
                 qualities: [
                     { value: '128k', label: '标准品质 (128k)' },
