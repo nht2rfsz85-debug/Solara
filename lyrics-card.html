@@ -755,71 +755,7 @@
 @media (max-width: 1100px){
   #bgToggleBtn{ width: 100%; }
 }
-</style><script>
-(function () {
-  const HOST_RE = /(^|\.)kuwo\.cn$|(^|\.)kwcdn\.kuwo\.cn$|(^|\.)sycdn\.kuwo\.cn$/i;
-
-  function toAbsolute(url) {
-    try { return new URL(url, location.href).toString(); } catch (e) { return String(url || ""); }
-  }
-
-  function shouldProxy(absUrl) {
-    try {
-      const u = new URL(absUrl);
-      return (u.protocol === "http:" || u.protocol === "https:") && HOST_RE.test(u.hostname || "");
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function proxify(url) {
-    const abs = toAbsolute(url);
-    if (!shouldProxy(abs)) return url;
-    return "/api.php?target=" + encodeURIComponent(abs);
-  }
-
-  const imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
-  if (imgDesc && imgDesc.set && imgDesc.get) {
-    Object.defineProperty(HTMLImageElement.prototype, "src", {
-      get: imgDesc.get,
-      set: function (v) { return imgDesc.set.call(this, proxify(v)); }
-    });
-  }
-
-  const mediaDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src");
-  if (mediaDesc && mediaDesc.set && mediaDesc.get) {
-    Object.defineProperty(HTMLMediaElement.prototype, "src", {
-      get: mediaDesc.get,
-      set: function (v) { return mediaDesc.set.call(this, proxify(v)); }
-    });
-  }
-
-  const _setAttr = Element.prototype.setAttribute;
-  Element.prototype.setAttribute = function (name, value) {
-    if (String(name).toLowerCase() === "src") {
-      if (this instanceof HTMLImageElement || this instanceof HTMLMediaElement) {
-        return _setAttr.call(this, name, proxify(value));
-      }
-    }
-    return _setAttr.call(this, name, value);
-  };
-
-  const _fetch = window.fetch;
-  window.fetch = function (input, init) {
-    try {
-      if (typeof input === "string") return _fetch.call(this, proxify(input), init);
-      if (input && typeof input.url === "string") {
-        const newUrl = proxify(input.url);
-        if (newUrl !== input.url) return _fetch.call(this, new Request(newUrl, input), init);
-      }
-    } catch (e) {}
-    return _fetch.call(this, input, init);
-  };
-
-  window.__KUWO_PROXIFY__ = proxify;
-})();
-</script>
-</head>
+</style></head>
 <body>
 <!-- 控制面板 -->
 <div class="control-panel">
